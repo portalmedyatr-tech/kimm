@@ -101,6 +101,11 @@ export default function Game() {
     };
     setChatPlayers(prev => [...prev, newPlayer]);
 
+    // Highlight the answer option in UI
+    if (!selectedAnswer) {
+      setSelectedAnswer(answer);
+    }
+
     // Update player stats
     setPlayerStats(prev => {
       const stats = new Map(prev);
@@ -120,7 +125,7 @@ export default function Game() {
       stats.set(username, current);
       return stats;
     });
-  }, [gameStarted, gameOver, currentQuestion]);
+  }, [gameStarted, gameOver, currentQuestion, selectedAnswer]);
 
   function submitAnswer(answer: 'A' | 'B' | 'C' | 'D') {
     if (!currentQuestion || isAnswered) return;
