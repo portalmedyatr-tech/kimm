@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { QUESTIONS, type Question } from '../data/questions';
 import TikfinityWidget from '../components/TikfinityWidget';
 import { getGameSettings, getTTSSettings } from '../config/settings';
@@ -9,6 +9,13 @@ interface Player {
   name: string;
   answer: 'A' | 'B' | 'C' | 'D';
   isCorrect: boolean;
+}
+
+interface PlayerStats {
+  name: string;
+  totalAnswers: number;
+  correctAnswers: number;
+  percentCorrect: number;
 }
 
 interface AnswerStats {
@@ -28,44 +35,57 @@ export default function Game() {
   const [gameOver, setGameOver] = useState(false);
   const [topPlayers, setTopPlayers] = useState<Player[]>([]);
   
-  // New: Timer and stats
+  // Timer and stats
   const [timeRemaining, setTimeRemaining] = useState(30);
   const [answerStats, setAnswerStats] = useState<AnswerStats>({ A: 0, B: 0, C: 0, D: 0 });
   const [chatPlayers, setChatPlayers] = useState<Player[]>([]);
   const [showResults, setShowResults] = useState(false);
+  const [playerStats, setPlayerStats] = useState<Map<string, PlayerStats>>(new Map());
+  
+  // Track when to auto-advance
+  const autoAdvanceRef = useRef(false);
 
   const gameSettings = getGameSettings();
   const ttsSettings = getTTSSettings();
+
+  // Initialize timer
+  useEffect(() => {
+    if (gameStarted && !gameOver) {
+      setTimeRemaining(gameSettings.questionTimerSeconds);
+    }
+  }, [gameStarted, currentQuestionIndex, gameSettings.questionTimerSeconds, gameOver]);
 
   // Timer countdown
   useEffect(() => {
     if (!gameStarted || gameOver || !currentQuestion) return;
 
     const timer = setInterval(() => {
-      setTimeRemaining(prev => {
-        if (prev <= 1) {
-          return gameSettings.questionTimerSeconds;
-        }
-        return prev - 1;
-      });
+      setTimeRemaining(prev => prev - 1);
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [gameStarted, gameOver, gameSettings.questionTimerSeconds, currentQuestion]);
+  }, [gameStarted, gameOver, currentQuestion]);
 
   // Auto-advance when timer reaches 0
   useEffect(() => {
-    if (timeRemaining === 0 && gameStarted && !gameOver) {
-      const timeout = setTimeout(() => {
-        nextQuestion();
-      }, 1000);
-      return () => clearTimeout(timeout);
+    if (timeRemaining <= 0 && gameStarted && !gameOver) {
+      if (!autoAdvanceRef.current) {
+        autoAdvanceRef.current = true;
+        setShowResults(true);
+        
+        setTimeout(() => {
+          nextQuestion();
+          autoAdvanceRef.current = false;
+        }, 2000);
+      }
     }
   }, [timeRemaining, gameStarted, gameOver]);
 
   // Handle answer from chat
   const handleChatAnswer = useCallback((answer: 'A' | 'B' | 'C' | 'D', username: string) => {
-    if (!gameStarted || gameOver || !currentQuestion || isAnswered) return;
+    if (!gameStarted || gameOver || !currentQuestion) return;
+
+    console.log(`Chat answer received: ${username} → ${answer}`); // Debug
 
     // Add to stats
     setAnswerStats(prev => ({
@@ -80,7 +100,27 @@ export default function Game() {
       isCorrect: answer === currentQuestion.correctAnswer
     };
     setChatPlayers(prev => [...prev, newPlayer]);
-  }, [gameStarted, gameOver, currentQuestion, isAnswered]);
+
+    // Update player stats
+    setPlayerStats(prev => {
+      const stats = new Map(prev);
+      const current = stats.get(username) || { 
+        name: username, 
+        totalAnswers: 0, 
+        correctAnswers: 0, 
+        percentCorrect: 0 
+      };
+      
+      current.totalAnswers += 1;
+      if (newPlayer.isCorrect) {
+        current.correctAnswers += 1;
+      }
+      current.percentCorrect = Math.round((current.correctAnswers / current.totalAnswers) * 100);
+      
+      stats.set(username, current);
+      return stats;
+    });
+  }, [gameStarted, gameOver, currentQuestion]);
 
   function submitAnswer(answer: 'A' | 'B' | 'C' | 'D') {
     if (!currentQuestion || isAnswered) return;
@@ -101,6 +141,11 @@ export default function Game() {
         : `Yanlış! Doğru cevap ${currentQuestion.correctAnswer} idi.`;
       ttsEngine.speak(message);
     }
+
+    // Auto advance after showing results
+    setTimeout(() => {
+      nextQuestion();
+    }, 2000);
   }
 
   function nextQuestion() {
@@ -120,6 +165,7 @@ export default function Game() {
       setTimeRemaining(gameSettings.questionTimerSeconds);
       setAnswerStats({ A: 0, B: 0, C: 0, D: 0 });
       setChatPlayers([]);
+      autoAdvanceRef.current = false;
 
       // TTS: Read new question
       if (ttsSettings.enabled) {
@@ -141,6 +187,8 @@ export default function Game() {
     setAnswerStats({ A: 0, B: 0, C: 0, D: 0 });
     setChatPlayers([]);
     setShowResults(false);
+    setPlayerStats(new Map());
+    autoAdvanceRef.current = false;
   }
 
   if (!gameStarted) {
@@ -164,6 +212,11 @@ export default function Game() {
   }
 
   if (gameOver) {
+    // Convert playerStats to array and sort
+    const sortedStats = Array.from(playerStats.values())
+      .sort((a, b) => b.correctAnswers - a.correctAnswers)
+      .slice(0, 10);
+
     return (
       <div className="game-container game-over-screen">
         <div className="game-over-content">
@@ -187,6 +240,31 @@ export default function Game() {
                   </li>
                 ))}
               </ul>
+            </div>
+          )}
+
+          {sortedStats.length > 0 && (
+            <div className="player-analytics">
+              <h3>📊 Oyuncu İstatistikleri</h3>
+              <div className="analytics-list">
+                {sortedStats.map((stat, idx) => (
+                  <div key={idx} className="analytics-item">
+                    <div className="player-info">
+                      <span className="player-name">{stat.name}</span>
+                      <span className="answer-count">{stat.totalAnswers} soru</span>
+                    </div>
+                    <div className="analytics-bar-container">
+                      <div className="analytics-bar">
+                        <div 
+                          className="analytics-bar-fill" 
+                          style={{ width: `${stat.percentCorrect}%` }}
+                        />
+                      </div>
+                      <span className="analytics-percentage">{stat.correctAnswers}/{stat.totalAnswers} (%{stat.percentCorrect})</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -252,7 +330,7 @@ export default function Game() {
                               style={{ width: `${percentage}%` }}
                             />
                           </div>
-                          <span className="stat-percentage">{percentage}%</span>
+                          <span className="stat-percentage">{percentage}% ({answerStats[option.label]})</span>
                         </div>
                       )}
                     </div>
@@ -309,6 +387,7 @@ export default function Game() {
             timeoutMs={3000}
             onAnswerSubmitted={handleChatAnswer}
             className="widget-wrapper"
+            demoMode={true}
           />
         </div>
       </div>

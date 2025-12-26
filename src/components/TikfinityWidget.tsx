@@ -4,13 +4,14 @@ export type TikfinityData = any;
 
 export interface TikfinityWidgetProps {
   cid: string;
-  apiBaseUrl?: string; // default: https://tikfinity.zerody.one
-  iframePath?: string; // default: /widget/chat
-  timeoutMs?: number; // wait time for iframe to respond
+  apiBaseUrl?: string;
+  iframePath?: string;
+  timeoutMs?: number;
   onError?: (err: Error | string) => void;
   onMessage?: (data: TikfinityData) => void;
-  onAnswerSubmitted?: (answer: 'A' | 'B' | 'C' | 'D', username: string) => void; // New: when user sends A/B/C/D
+  onAnswerSubmitted?: (answer: 'A' | 'B' | 'C' | 'D', username: string) => void;
   className?: string;
+  demoMode?: boolean; // Enable demo answers for testing
 }
 
 export default function TikfinityWidget({
@@ -22,12 +23,14 @@ export default function TikfinityWidget({
   onMessage,
   onAnswerSubmitted,
   className,
+  demoMode = false,
 }: TikfinityWidgetProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [data, setData] = useState<TikfinityData | null>(null);
   const timeoutRef = useRef<number | null>(null);
-  const lastMessagesRef = useRef<Set<string>>(new Set()); // Track processed messages
+  const lastMessagesRef = useRef<Set<string>>(new Set());
+  const demoIntervalRef = useRef<number | null>(null);
 
   const origin = (() => {
     try {
@@ -46,10 +49,9 @@ export default function TikfinityWidget({
       if (!e.origin || !origin || e.origin !== origin) return;
       const payload = e.data;
       if (!payload) return;
-      // basic validation
       if (payload.cid && payload.cid !== cid) return;
 
-      // NEW: Extract and filter chat messages for A/B/C/D answers
+      // Extract and filter chat messages for A/B/C/D answers
       if (payload.messages && Array.isArray(payload.messages)) {
         payload.messages.forEach((msg: any) => {
           const msgId = `${msg.user || msg.username || 'anon'}_${msg.timestamp || msg.id || Math.random()}`;
@@ -58,6 +60,7 @@ export default function TikfinityWidget({
             
             const text = (msg.text || msg.content || '').trim().toUpperCase();
             if (['A', 'B', 'C', 'D'].includes(text)) {
+              console.log(`[TikfinityWidget] Answer from ${msg.user || msg.username}: ${text}`);
               onAnswerSubmitted?.(text as 'A' | 'B' | 'C' | 'D', msg.user || msg.username || 'Anonim');
             }
           }
@@ -68,7 +71,6 @@ export default function TikfinityWidget({
       setStatus('ready');
       onMessage?.(payload);
 
-      // clear timeout if any
       if (timeoutRef.current) {
         window.clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
@@ -113,6 +115,28 @@ export default function TikfinityWidget({
     }
   };
 
+  // Demo mode: simulate answers
+  useEffect(() => {
+    if (!demoMode) return;
+
+    demoIntervalRef.current = window.setInterval(() => {
+      const users = ['Ali', 'Ayşe', 'Can', 'Deniz', 'Ece', 'Fatih', 'Gül', 'Hakan'];
+      const answers: ('A' | 'B' | 'C' | 'D')[] = ['A', 'B', 'C', 'D'];
+      
+      const randomUser = users[Math.floor(Math.random() * users.length)];
+      const randomAnswer = answers[Math.floor(Math.random() * answers.length)];
+      
+      console.log(`[Demo] ${randomUser} → ${randomAnswer}`);
+      onAnswerSubmitted?.(randomAnswer, randomUser);
+    }, 500);
+
+    return () => {
+      if (demoIntervalRef.current) {
+        window.clearInterval(demoIntervalRef.current);
+      }
+    };
+  }, [demoMode, onAnswerSubmitted]);
+
   return (
     <div className={className}>
       <div style={{ border: '1px solid #ddd', borderRadius: 6, overflow: 'hidden' }}>
@@ -130,10 +154,13 @@ export default function TikfinityWidget({
         {status === 'ready' && data && (
           <div>
             <strong>Veri alındı</strong>
-            <pre style={{ maxHeight: 160, overflow: 'auto', background: '#f9f9f9', padding: 8 }}>{JSON.stringify(data, null, 2)}</pre>
+            <pre style={{ maxHeight: 160, overflow: 'auto', background: '#f9f9f9', padding: 8, fontSize: '12px' }}>
+              {JSON.stringify(data, null, 2).substring(0, 200)}...
+            </pre>
           </div>
         )}
-        {status === 'error' && <div style={{ color: 'red' }}>Veri alınamadı. Lütfen tekrar deneyin.</div>}
+        {status === 'error' && <div style={{ color: 'red' }}>Veri alınamadı.</div>}
+        {demoMode && <div style={{ marginTop: 8, color: '#667eea', fontSize: '12px', fontWeight: 600 }}>🔄 Demo Mode Aktif</div>}
       </div>
     </div>
   );
