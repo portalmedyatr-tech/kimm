@@ -1,7 +1,7 @@
 import ReactDOM from 'react-dom/client';
-import Game from './pages/Game';
+import App from './App';
 
 const root = document.getElementById('root');
 if (root) {
-  ReactDOM.createRoot(root).render(<Game />);
+  ReactDOM.createRoot(root).render(<App />);
 }

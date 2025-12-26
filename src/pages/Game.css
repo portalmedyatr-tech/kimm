@@ -35,6 +35,21 @@
   color: #ccc;
 }
 
+.timer {
+  transition: color 0.3s;
+}
+
+.timer-warning {
+  color: #f44336;
+  font-weight: 700;
+  animation: pulse 0.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
 .game-container {
   flex: 1;
   display: flex;
@@ -121,6 +136,12 @@
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 16px;
+}
+
+.option-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .option-button {
@@ -225,6 +246,86 @@
 
 .hint p {
   margin: 0;
+}
+
+.answer-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-bar {
+  background: #e0e0e0;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.stat-bar-fill {
+  background: linear-gradient(90deg, #667eea, #764ba2);
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.stat-percentage {
+  font-size: 12px;
+  font-weight: 600;
+  color: #667eea;
+}
+
+.chat-answerers {
+  margin-top: 16px;
+  padding: 12px;
+  background: rgba(102, 126, 234, 0.05);
+  border-radius: 6px;
+}
+
+.chat-answerers h4 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  color: #667eea;
+}
+
+.answerers-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.answerers-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  font-size: 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.answerers-list li.correct {
+  color: #4caf50;
+}
+
+.answerers-list li.incorrect {
+  color: #f44336;
+}
+
+.player-name {
+  flex: 1;
+  font-weight: 600;
+}
+
+.player-answer {
+  background: #f5f5f5;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 700;
+}
+
+.player-result {
+  font-weight: 700;
+  font-size: 14px;
 }
 
 .game-sidebar {

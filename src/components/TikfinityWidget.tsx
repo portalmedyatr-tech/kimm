@@ -9,6 +9,7 @@ export interface TikfinityWidgetProps {
   timeoutMs?: number; // wait time for iframe to respond
   onError?: (err: Error | string) => void;
   onMessage?: (data: TikfinityData) => void;
+  onAnswerSubmitted?: (answer: 'A' | 'B' | 'C' | 'D', username: string) => void; // New: when user sends A/B/C/D
   className?: string;
 }
 
@@ -19,12 +20,14 @@ export default function TikfinityWidget({
   timeoutMs = 7000,
   onError,
   onMessage,
+  onAnswerSubmitted,
   className,
 }: TikfinityWidgetProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [data, setData] = useState<TikfinityData | null>(null);
   const timeoutRef = useRef<number | null>(null);
+  const lastMessagesRef = useRef<Set<string>>(new Set()); // Track processed messages
 
   const origin = (() => {
     try {
@@ -45,6 +48,21 @@ export default function TikfinityWidget({
       if (!payload) return;
       // basic validation
       if (payload.cid && payload.cid !== cid) return;
+
+      // NEW: Extract and filter chat messages for A/B/C/D answers
+      if (payload.messages && Array.isArray(payload.messages)) {
+        payload.messages.forEach((msg: any) => {
+          const msgId = `${msg.user || msg.username || 'anon'}_${msg.timestamp || msg.id || Math.random()}`;
+          if (!lastMessagesRef.current.has(msgId)) {
+            lastMessagesRef.current.add(msgId);
+            
+            const text = (msg.text || msg.content || '').trim().toUpperCase();
+            if (['A', 'B', 'C', 'D'].includes(text)) {
+              onAnswerSubmitted?.(text as 'A' | 'B' | 'C' | 'D', msg.user || msg.username || 'Anonim');
+            }
+          }
+        });
+      }
 
       setData(payload);
       setStatus('ready');
@@ -82,7 +100,7 @@ export default function TikfinityWidget({
         timeoutRef.current = null;
       }
     };
-  }, [cid, apiBaseUrl, timeoutMs, onError, onMessage, origin]);
+  }, [cid, apiBaseUrl, timeoutMs, onError, onMessage, onAnswerSubmitted, origin]);
 
   const iframeSrc = `${apiBaseUrl.replace(/\/$/, '')}${iframePath}?cid=${encodeURIComponent(cid)}`;
 

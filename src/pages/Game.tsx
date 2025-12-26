@@ -1,12 +1,21 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { QUESTIONS, type Question } from '../data/questions';
 import TikfinityWidget from '../components/TikfinityWidget';
+import { getGameSettings, getTTSSettings } from '../config/settings';
+import { ttsEngine } from '../config/tts';
 import './Game.css';
 
 interface Player {
   name: string;
-  points: number;
-  correctAnswers: number;
+  answer: 'A' | 'B' | 'C' | 'D';
+  isCorrect: boolean;
+}
+
+interface AnswerStats {
+  A: number;
+  B: number;
+  C: number;
+  D: number;
 }
 
 export default function Game() {
@@ -18,31 +27,79 @@ export default function Game() {
   const [gameStarted, setGameStarted] = useState(false);
   const [gameOver, setGameOver] = useState(false);
   const [topPlayers, setTopPlayers] = useState<Player[]>([]);
+  
+  // New: Timer and stats
+  const [timeRemaining, setTimeRemaining] = useState(30);
+  const [answerStats, setAnswerStats] = useState<AnswerStats>({ A: 0, B: 0, C: 0, D: 0 });
+  const [chatPlayers, setChatPlayers] = useState<Player[]>([]);
+  const [showResults, setShowResults] = useState(false);
 
-  // TikTok Chat ile cevap alma
+  const gameSettings = getGameSettings();
+  const ttsSettings = getTTSSettings();
+
+  // Timer countdown
   useEffect(() => {
-    if (!gameStarted || !currentQuestion || isAnswered) return;
+    if (!gameStarted || gameOver || !currentQuestion) return;
 
-    function handleKeyPress(e: KeyboardEvent) {
-      const key = e.key.toUpperCase();
-      if (['A', 'B', 'C', 'D'].includes(key)) {
-        submitAnswer(key as 'A' | 'B' | 'C' | 'D');
-      }
+    const timer = setInterval(() => {
+      setTimeRemaining(prev => {
+        if (prev <= 1) {
+          return gameSettings.questionTimerSeconds;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [gameStarted, gameOver, gameSettings.questionTimerSeconds, currentQuestion]);
+
+  // Auto-advance when timer reaches 0
+  useEffect(() => {
+    if (timeRemaining === 0 && gameStarted && !gameOver) {
+      const timeout = setTimeout(() => {
+        nextQuestion();
+      }, 1000);
+      return () => clearTimeout(timeout);
     }
+  }, [timeRemaining, gameStarted, gameOver]);
 
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [gameStarted, currentQuestion, isAnswered]);
+  // Handle answer from chat
+  const handleChatAnswer = useCallback((answer: 'A' | 'B' | 'C' | 'D', username: string) => {
+    if (!gameStarted || gameOver || !currentQuestion || isAnswered) return;
+
+    // Add to stats
+    setAnswerStats(prev => ({
+      ...prev,
+      [answer]: prev[answer] + 1
+    }));
+
+    // Add to player list
+    const newPlayer: Player = {
+      name: username,
+      answer,
+      isCorrect: answer === currentQuestion.correctAnswer
+    };
+    setChatPlayers(prev => [...prev, newPlayer]);
+  }, [gameStarted, gameOver, currentQuestion, isAnswered]);
 
   function submitAnswer(answer: 'A' | 'B' | 'C' | 'D') {
     if (!currentQuestion || isAnswered) return;
 
     setSelectedAnswer(answer);
     setIsAnswered(true);
+    setShowResults(true);
 
     const isCorrect = answer === currentQuestion.correctAnswer;
     if (isCorrect) {
       setScore(prev => prev + currentQuestion.points);
+    }
+
+    // TTS: Announce result
+    if (ttsSettings.enabled) {
+      const message = isCorrect 
+        ? `Doğru! ${currentQuestion.points} puan kazandınız.`
+        : `Yanlış! Doğru cevap ${currentQuestion.correctAnswer} idi.`;
+      ttsEngine.speak(message);
     }
   }
 
@@ -50,17 +107,24 @@ export default function Game() {
     const nextIndex = currentQuestionIndex + 1;
     if (nextIndex >= QUESTIONS.length) {
       setGameOver(true);
-      // Top player simulasyonu
-      setTopPlayers([
-        { name: 'Sen', points: score, correctAnswers: currentQuestionIndex + (selectedAnswer === currentQuestion?.correctAnswer ? 1 : 0) },
-        { name: 'Oyuncu 2', points: Math.max(0, score - 100), correctAnswers: currentQuestionIndex - 1 },
-        { name: 'Oyuncu 3', points: Math.max(0, score - 250), correctAnswers: currentQuestionIndex - 2 },
-      ]);
+      // Calculate top 3 correct answerers
+      const correctPlayers = chatPlayers.filter(p => p.isCorrect);
+      const topThree = correctPlayers.slice(0, gameSettings.showTopPlayers);
+      setTopPlayers(topThree);
     } else {
       setCurrentQuestionIndex(nextIndex);
       setCurrentQuestion(QUESTIONS[nextIndex]);
       setSelectedAnswer(null);
       setIsAnswered(false);
+      setShowResults(false);
+      setTimeRemaining(gameSettings.questionTimerSeconds);
+      setAnswerStats({ A: 0, B: 0, C: 0, D: 0 });
+      setChatPlayers([]);
+
+      // TTS: Read new question
+      if (ttsSettings.enabled) {
+        ttsEngine.speak(QUESTIONS[nextIndex].text);
+      }
     }
   }
 
@@ -73,6 +137,10 @@ export default function Game() {
     setGameStarted(false);
     setGameOver(false);
     setTopPlayers([]);
+    setTimeRemaining(gameSettings.questionTimerSeconds);
+    setAnswerStats({ A: 0, B: 0, C: 0, D: 0 });
+    setChatPlayers([]);
+    setShowResults(false);
   }
 
   if (!gameStarted) {
@@ -81,7 +149,13 @@ export default function Game() {
         <div className="intro-content">
           <h1>🎬 Kim Milyoner Olmak İster?</h1>
           <p>TikTok canlı yayınında katıl ve soruları cevaplayarak puan kazan!</p>
-          <button className="start-button" onClick={() => setGameStarted(true)}>
+          <button className="start-button" onClick={() => {
+            setGameStarted(true);
+            setTimeRemaining(gameSettings.questionTimerSeconds);
+            if (ttsSettings.enabled) {
+              ttsEngine.speak(QUESTIONS[0].text);
+            }
+          }}>
             Oyuna Başla
           </button>
         </div>
@@ -101,18 +175,20 @@ export default function Game() {
             </div>
           </div>
 
-          <div className="top-players">
-            <h3>🏆 En İyi Oyuncular</h3>
-            <ul>
-              {topPlayers.map((player, idx) => (
-                <li key={idx}>
-                  <span className="rank">#{idx + 1}</span>
-                  <span className="name">{player.name}</span>
-                  <span className="points">{player.points} Puan</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+          {topPlayers.length > 0 && (
+            <div className="top-players">
+              <h3>🏆 En İyi Cevaplamalar</h3>
+              <ul>
+                {topPlayers.map((player, idx) => (
+                  <li key={idx}>
+                    <span className="rank">#{idx + 1}</span>
+                    <span className="name">{player.name}</span>
+                    <span className="points">{player.answer}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <button className="restart-button" onClick={restartGame}>
             Tekrar Oyna
@@ -122,6 +198,9 @@ export default function Game() {
     );
   }
 
+  const totalVotes = Object.values(answerStats).reduce((a, b) => a + b, 0);
+  const getPercentage = (count: number) => totalVotes === 0 ? 0 : Math.round((count / totalVotes) * 100);
+
   return (
     <div className="game-wrapper">
       <div className="game-main">
@@ -130,6 +209,10 @@ export default function Game() {
             <span>Soru: {currentQuestionIndex + 1}/10</span>
             <span className="separator">|</span>
             <span>Puan: {score}</span>
+            <span className="separator">|</span>
+            <span className={`timer ${timeRemaining <= 5 ? 'timer-warning' : ''}`}>
+              ⏱️ {timeRemaining}s
+            </span>
           </div>
         </div>
 
@@ -138,28 +221,46 @@ export default function Game() {
             <div className="question-section">
               <h2 className="question-text">{currentQuestion.text}</h2>
               <div className="options-grid">
-                {currentQuestion.options.map(option => (
-                  <button
-                    key={option.label}
-                    className={`option-button ${selectedAnswer === option.label ? 'selected' : ''} ${
-                      isAnswered
-                        ? option.label === currentQuestion.correctAnswer
-                          ? 'correct'
-                          : selectedAnswer === option.label
-                          ? 'incorrect'
-                          : ''
-                        : ''
-                    }`}
-                    onClick={() => !isAnswered && submitAnswer(option.label)}
-                    disabled={isAnswered}
-                  >
-                    <span className="option-label">{option.label}</span>
-                    <span className="option-text">{option.text}</span>
-                  </button>
-                ))}
+                {currentQuestion.options.map(option => {
+                  const percentage = getPercentage(answerStats[option.label]);
+                  const isSelected = selectedAnswer === option.label;
+                  const isCorrect = option.label === currentQuestion.correctAnswer;
+
+                  return (
+                    <div key={option.label} className="option-wrapper">
+                      <button
+                        className={`option-button ${isSelected ? 'selected' : ''} ${
+                          showResults
+                            ? isCorrect
+                              ? 'correct'
+                              : isSelected
+                              ? 'incorrect'
+                              : ''
+                            : ''
+                        }`}
+                        onClick={() => !isAnswered && submitAnswer(option.label)}
+                        disabled={isAnswered}
+                      >
+                        <span className="option-label">{option.label}</span>
+                        <span className="option-text">{option.text}</span>
+                      </button>
+                      {totalVotes > 0 && (
+                        <div className="answer-stats">
+                          <div className="stat-bar">
+                            <div 
+                              className="stat-bar-fill" 
+                              style={{ width: `${percentage}%` }}
+                            />
+                          </div>
+                          <span className="stat-percentage">{percentage}%</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
 
-              {isAnswered && (
+              {showResults && (
                 <div className={`answer-feedback ${selectedAnswer === currentQuestion.correctAnswer ? 'correct-feedback' : 'incorrect-feedback'}`}>
                   {selectedAnswer === currentQuestion.correctAnswer ? (
                     <>
@@ -171,15 +272,27 @@ export default function Game() {
                       <p>Doğru cevap: <strong>{currentQuestion.correctAnswer}</strong></p>
                     </>
                   )}
-                  <button className="next-button" onClick={nextQuestion}>
-                    {currentQuestionIndex + 1 >= QUESTIONS.length ? 'Sonuçları Göster' : 'Sonraki Soru'}
-                  </button>
+                  
+                  {chatPlayers.length > 0 && (
+                    <div className="chat-answerers">
+                      <h4>İlk Cevaplamalar:</h4>
+                      <ul className="answerers-list">
+                        {chatPlayers.slice(0, 5).map((player, idx) => (
+                          <li key={idx} className={player.isCorrect ? 'correct' : 'incorrect'}>
+                            <span className="player-name">{player.name}</span>
+                            <span className="player-answer">{player.answer}</span>
+                            <span className="player-result">{player.isCorrect ? '✓' : '✗'}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
 
-              {!isAnswered && (
+              {!showResults && (
                 <div className="hint">
-                  <p>💡 Cevap vermek için bir seçeneğe tıkla veya A/B/C/D tuşlarını kullan</p>
+                  <p>💡 Chat'ten cevaplar bekleniyor... {totalVotes} kişi cevap verdi</p>
                 </div>
               )}
             </div>
@@ -194,6 +307,7 @@ export default function Game() {
             cid="1209191"
             apiBaseUrl="https://tikfinity.zerody.one"
             timeoutMs={3000}
+            onAnswerSubmitted={handleChatAnswer}
             className="widget-wrapper"
           />
         </div>
