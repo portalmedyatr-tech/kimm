@@ -387,7 +387,6 @@ export default function Game() {
             timeoutMs={3000}
             onAnswerSubmitted={handleChatAnswer}
             className="widget-wrapper"
-            demoMode={true}
           />
         </div>
       </div>

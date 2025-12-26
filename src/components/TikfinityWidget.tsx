@@ -11,7 +11,6 @@ export interface TikfinityWidgetProps {
   onMessage?: (data: TikfinityData) => void;
   onAnswerSubmitted?: (answer: 'A' | 'B' | 'C' | 'D', username: string) => void;
   className?: string;
-  demoMode?: boolean; // Enable demo answers for testing
 }
 
 export default function TikfinityWidget({
@@ -23,14 +22,12 @@ export default function TikfinityWidget({
   onMessage,
   onAnswerSubmitted,
   className,
-  demoMode = false,
 }: TikfinityWidgetProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [data, setData] = useState<TikfinityData | null>(null);
   const timeoutRef = useRef<number | null>(null);
   const lastMessagesRef = useRef<Set<string>>(new Set());
-  const demoIntervalRef = useRef<number | null>(null);
 
   const origin = (() => {
     try {
@@ -115,28 +112,6 @@ export default function TikfinityWidget({
     }
   };
 
-  // Demo mode: simulate answers
-  useEffect(() => {
-    if (!demoMode) return;
-
-    demoIntervalRef.current = window.setInterval(() => {
-      const users = ['Ali', 'Ayşe', 'Can', 'Deniz', 'Ece', 'Fatih', 'Gül', 'Hakan'];
-      const answers: ('A' | 'B' | 'C' | 'D')[] = ['A', 'B', 'C', 'D'];
-      
-      const randomUser = users[Math.floor(Math.random() * users.length)];
-      const randomAnswer = answers[Math.floor(Math.random() * answers.length)];
-      
-      console.log(`[Demo] ${randomUser} → ${randomAnswer}`);
-      onAnswerSubmitted?.(randomAnswer, randomUser);
-    }, 500);
-
-    return () => {
-      if (demoIntervalRef.current) {
-        window.clearInterval(demoIntervalRef.current);
-      }
-    };
-  }, [demoMode, onAnswerSubmitted]);
-
   return (
     <div className={className}>
       <div style={{ border: '1px solid #ddd', borderRadius: 6, overflow: 'hidden' }}>
@@ -160,7 +135,6 @@ export default function TikfinityWidget({
           </div>
         )}
         {status === 'error' && <div style={{ color: 'red' }}>Veri alınamadı.</div>}
-        {demoMode && <div style={{ marginTop: 8, color: '#667eea', fontSize: '12px', fontWeight: 600 }}>🔄 Demo Mode Aktif</div>}
       </div>
     </div>
   );
