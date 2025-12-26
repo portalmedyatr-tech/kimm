@@ -1,0 +1,122 @@
+import React, { useEffect, useRef, useState } from 'react';
+
+export type TikfinityData = any;
+
+export interface TikfinityWidgetProps {
+  cid: string;
+  apiBaseUrl?: string; // default: https://tikfinity.zerody.one
+  iframePath?: string; // default: /widget/chat
+  timeoutMs?: number; // wait time for iframe to respond
+  onError?: (err: Error | string) => void;
+  onMessage?: (data: TikfinityData) => void;
+  className?: string;
+}
+
+export default function TikfinityWidget({
+  cid,
+  apiBaseUrl = 'https://tikfinity.zerody.one',
+  iframePath = '/widget/chat',
+  timeoutMs = 7000,
+  onError,
+  onMessage,
+  className,
+}: TikfinityWidgetProps) {
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [data, setData] = useState<TikfinityData | null>(null);
+  const timeoutRef = useRef<number | null>(null);
+
+  const origin = (() => {
+    try {
+      return new URL(apiBaseUrl).origin;
+    } catch (e) {
+      return apiBaseUrl;
+    }
+  })();
+
+  useEffect(() => {
+    if (!cid) return;
+    setStatus('loading');
+
+    function onMessageEvent(e: MessageEvent) {
+      // Accept only messages from the widget origin
+      if (!e.origin || !origin || e.origin !== origin) return;
+      const payload = e.data;
+      if (!payload) return;
+      // basic validation
+      if (payload.cid && payload.cid !== cid) return;
+
+      setData(payload);
+      setStatus('ready');
+      onMessage?.(payload);
+
+      // clear timeout if any
+      if (timeoutRef.current) {
+        window.clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+    }
+
+    window.addEventListener('message', onMessageEvent as any);
+
+    // Setup a fallback: if iframe doesn't respond in time, try direct fetch
+    timeoutRef.current = window.setTimeout(async () => {
+      try {
+        const url = `${apiBaseUrl}/widget/data?cid=${encodeURIComponent(cid)}`;
+        const res = await fetch(url, { credentials: 'include' });
+        if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+        const json = await res.json();
+        setData(json);
+        setStatus('ready');
+        onMessage?.(json);
+      } catch (err: any) {
+        setStatus('error');
+        onError?.(err);
+      }
+    }, timeoutMs);
+
+    return () => {
+      window.removeEventListener('message', onMessageEvent as any);
+      if (timeoutRef.current) {
+        window.clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+    };
+  }, [cid, apiBaseUrl, timeoutMs, onError, onMessage, origin]);
+
+  const iframeSrc = `${apiBaseUrl.replace(/\/$/, '')}${iframePath}?cid=${encodeURIComponent(cid)}`;
+
+  const handleLoad = () => {
+    // After iframe loads, send an init message requesting data
+    try {
+      iframeRef.current?.contentWindow?.postMessage({ type: 'init', cid }, origin);
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  return (
+    <div className={className}>
+      <div style={{ border: '1px solid #ddd', borderRadius: 6, overflow: 'hidden' }}>
+        <iframe
+          ref={iframeRef}
+          title={`tikfinity-widget-${cid}`}
+          src={iframeSrc}
+          style={{ width: '100%', height: 400, border: 'none' }}
+          onLoad={handleLoad}
+        />
+      </div>
+
+      <div style={{ marginTop: 8 }}>
+        {status === 'loading' && <div>Yükleniyor…</div>}
+        {status === 'ready' && data && (
+          <div>
+            <strong>Veri alındı</strong>
+            <pre style={{ maxHeight: 160, overflow: 'auto', background: '#f9f9f9', padding: 8 }}>{JSON.stringify(data, null, 2)}</pre>
+          </div>
+        )}
+        {status === 'error' && <div style={{ color: 'red' }}>Veri alınamadı. Lütfen tekrar deneyin.</div>}
+      </div>
+    </div>
+  );
+}
